@@ -8,105 +8,88 @@
 // You will need to add private members to the class declaration in `stream_reassembler.hh`
 
 template <typename... Targs>
-void DUMMY_CODE(Targs &&.../* unused */) {}
+void DUMMY_CODE(Targs &&... /* unused */) {}
 
 using namespace std;
 
 StreamReassembler::StreamReassembler(const size_t capacity)
-    : _output(capacity), _capacity(capacity), _unassembled_str(), _unassembled_interval() {}
+    : unass_base(0)
+    , unass_size(0)
+    , _eof(0)
+    , buffer(capacity, '\0')
+    , bitmap(capacity, false)
+    , _output(capacity)
+    , _capacity(capacity) {}
+
+//! \details This functions calls just after pushing a substring into the
+//! _output stream. It aims to check if there exists any contiguous substrings
+//! recorded earlier can be push into the stream.
+void StreamReassembler::check_contiguous() {
+    string tmp = "";
+    while (bitmap.front()) {
+        // cout<<"check one more contiguous substring"<<endl;
+        tmp += buffer.front();
+        buffer.pop_front();
+        bitmap.pop_front();
+        buffer.push_back('\0');
+        bitmap.push_back(false);
+    }
+    if (tmp.length() > 0) {
+        // cout << "push one contiguous substring with length " << tmp.length() << endl;
+        _output.write(tmp);
+        unass_base += tmp.length();
+        unass_size -= tmp.length();
+    }
+}
 
 //! \details This function accepts a substring (aka a segment) of bytes,
 //! possibly out-of-order, from the logical stream, and assembles any newly
 //! contiguous substrings and writes them into the output stream in order.
 void StreamReassembler::push_substring(const string &data, const size_t index, const bool eof) {
-    size_t len = data.length();
-    size_t next = index + len;
-    // const string &s = data;
-    size_t begin = index;
-    size_t end = next - 1;
-    // if (index < _next_assembled) {
-    //     const string &a = s.substr(_next_assembled - index);
-    //     begin = _next_assembled;
-    // }
-    // size_t begin = index;
-    // size_t end = next - 1;
-
-    // check if out of eof range or multily eof
-    if (_eof && (next > _eof_index || eof))
-        return;
-
-    // check if out of capacity
-    size_t m = max_unassembled();
-    if (next > m) {
-        // const string &s = data.substr(0, m - index);
-        // push_substring(s, index, eof);
-        return;
-    }
-
-    // check if intersect
-    // if (index < _next_assembled)
-    //     return;
-    // for (auto &p : _unassembled_interval) {
-    //     if (max(p.first, begin) < min(p.second, end))
-    //         return;
-    // }
-
     if (eof) {
         _eof = true;
-        _eof_index = next;
     }
+    size_t len = data.length();
+    if (len == 0 && _eof && unass_size == 0) {
+        _output.end_input();
+        return;
+    }
+    // ignore invalid index
+    if (index >= unass_base + _capacity) return;
 
-    auto cmp = [](pair<size_t, size_t> a, pair<size_t, size_t> b) -> bool {
-        if (a.first < b.first)
-            return true;
-        if (a.first == b.first)
-            return a.second <= b.second;
-    };
-
-    for (int i = 0; i < _unassembled_interval.size(); i++) {
-        if (i + 1 == _unassembled_interval.size()) {
-            _unassembled_interval.emplace_back(make_pair(begin, end));
-            break;
+    if (index >= unass_base) {
+        int offset = index - unass_base;
+        size_t real_len = min(len, _capacity - _output.buffer_size() - offset);
+        if (real_len < len) {
+            _eof = false;
         }
-        auto b = _unassembled_interval[i];
-        auto n = _unassembled_interval[i + 1];
-        //if pair smaller than before larger than next,then insert it
-        if (cmp(b, {begin, end}) && cmp({begin, end}, n)) {
-            _unassembled_interval.insert(_unassembled_interval.begin() + i + 1, {begin, end});
-            break;
+        for (size_t i = 0; i < real_len; i++) {
+            if (bitmap[i + offset])
+                continue;
+            buffer[i + offset] = data[i];
+            bitmap[i + offset] = true;
+            unass_size++;
+        }
+    } else if (index + len > unass_base) {
+        int offset = unass_base - index;
+        size_t real_len = min(len - offset, _capacity - _output.buffer_size());
+        if (real_len < len - offset) {
+            _eof = false;
+        }
+        for (size_t i = 0; i < real_len; i++) {
+            if (bitmap[i])
+                continue;
+            buffer[i] = data[i + offset];
+            bitmap[i] = true;
+            unass_size++;
         }
     }
-    if (_unassembled_interval.empty()) {
-        _unassembled_interval.emplace_back(make_pair(begin, end));
+    check_contiguous();
+    if (_eof && unass_size == 0) {
+        _output.end_input();
     }
-    // _unassembled_interval.emplace(begin, end);
-    _unassembled += len;
-    _unassembled_str.insert({begin, data});
-
-    for(auto & p : _unassembled_interval){
-        if(p.first <= _next_assembled){
-            const string &str = _unassembled_str.at(p.first);
-            _unassembled_interval.erase(_next_assembled);
-            
-        }
-    }
-
-    // while (_unassembled_str.find(_next_assembled) != _unassembled_str.end()) {
-    //     const string &str = _unassembled_str.at(_next_assembled);
-
-    //     _unassembled_str.erase(_next_assembled);
-    //     _unassembled_interval.erase(_next_assembled);
-    //     _unassembled -= str.length();
-    //     _next_assembled += str.length();
-    //     // size_t e = _next_assembled + str.length() - 1;
-
-    //     _output.write(str);
-
-    //     if (_eof && _next_assembled == _eof_index)
-    //         _output.end_input();
-    // }
 }
 
-size_t StreamReassembler::unassembled_bytes() const { return _unassembled; }
+size_t StreamReassembler::unassembled_bytes() const { return unass_size; }
 
-bool StreamReassembler::empty() const { return _output.buffer_empty() && _unassembled == 0; }
+bool StreamReassembler::empty() const { return unass_size == 0; }
