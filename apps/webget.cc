@@ -1,7 +1,7 @@
 #include "socket.hh"
 #include "util.hh"
-#include <address.hh>
 
+#include <address.hh>
 #include <cstdlib>
 #include <iostream>
 
@@ -11,9 +11,9 @@ void get_URL(const string &host, const string &path) {
     // Your code here.
     TCPSocket sock;
     // sock.connect(Address("127.0.0.1",9090));
-    sock.connect(Address(host,"http"));
-    sock.write("GET " + path +  " HTTP/1.1\r\nHost: "+ host + "\r\nConnection: close\r\n\r\n");
-    while(!sock.eof()){
+    sock.connect(Address(host, "http"));
+    sock.write("GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n");
+    while (!sock.eof()) {
         cout << sock.read();
     }
     sock.close();
