@@ -10,7 +10,7 @@
 // automated checks run by `make check_lab3`.
 
 template <typename... Targs>
-void DUMMY_CODE(Targs &&... /* unused */) {}
+void DUMMY_CODE(Targs &&.../* unused */) {}
 
 using namespace std;
 
@@ -20,7 +20,8 @@ using namespace std;
 TCPSender::TCPSender(const size_t capacity, const uint16_t retx_timeout, const std::optional<WrappingInt32> fixed_isn)
     : _isn(fixed_isn.value_or(WrappingInt32{random_device()()}))
     , _initial_retransmission_timeout{retx_timeout}
-    , _stream(capacity) {}
+    , _stream(capacity)
+    , _rto(retx_timeout) {}
 
 uint64_t TCPSender::bytes_in_flight() const { return {}; }
 
@@ -31,8 +32,28 @@ void TCPSender::fill_window() {}
 void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_size) { DUMMY_CODE(ackno, window_size); }
 
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
-void TCPSender::tick(const size_t ms_since_last_tick) { DUMMY_CODE(ms_since_last_tick); }
+void TCPSender::tick(const size_t ms_since_last_tick) {
+    if (!_timer_on)
+        return;
+    _timer += ms_since_last_tick;
+    // timer expire
+    if (_timer > _rto) {
+        const TCPSegment &retrans = _segments_outstanding.front();
+        // const TCPHeader &h = retrans.header();
+        _segments_out.push(retrans);
+        _consecutive_retrans_num += 1;
+        //if win size is non zero,then double value of rto
+        if (retrans.header().win != 0) {
+            _rto *= 2;
+        }
+        _timer = 0;
+    }
+}
 
 unsigned int TCPSender::consecutive_retransmissions() const { return {}; }
 
-void TCPSender::send_empty_segment() {}
+void TCPSender::send_empty_segment() {
+    TCPSegment seg;
+    seg.header().seqno = wrap(_next_seqno, _isn);
+    _segments_out.push(seg);
+}
