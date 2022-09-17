@@ -57,6 +57,9 @@ class StreamReassembler {
     //! \brief Is the internal state empty (other than the output stream)?
     //! \returns `true` if no substrings are waiting to be assembled
     bool empty() const;
+
+    // return ack seq
+    size_t absolute_seq() const;
 };
 
 #endif  // SPONGE_LIBSPONGE_STREAM_REASSEMBLER_HH
