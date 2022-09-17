@@ -23,9 +23,30 @@ TCPSender::TCPSender(const size_t capacity, const uint16_t retx_timeout, const s
     , _stream(capacity)
     , _rto(retx_timeout) {}
 
-uint64_t TCPSender::bytes_in_flight() const { return {}; }
+uint64_t TCPSender::bytes_in_flight() const { return _bytes_in_flight; }
 
-void TCPSender::fill_window() {}
+void TCPSender::fill_window() {
+    if (!_syn_sent) {
+        _syn_sent = true;
+        TCPSegment seg;
+        seg.header().syn = true;
+        _send_seg(seg);
+        return;
+    }
+}
+
+void TCPSender::_send_seg(TCPSegment &seg) {
+    seg.header().seqno = wrap(_next_seqno, _isn);
+    _next_seqno += seg.length_in_sequence_space();
+    _bytes_in_flight += seg.length_in_sequence_space();
+    _segments_out.push(seg);
+    _segments_outstanding.push(seg);
+    if (!_timer_on) {
+        _timer_on = true;
+        _timer = 0;
+    }
+    return;
+}
 
 //! \param ackno The remote receiver's ackno (acknowledgment number)
 //! \param window_size The remote receiver's advertised window size
@@ -42,7 +63,7 @@ void TCPSender::tick(const size_t ms_since_last_tick) {
         // const TCPHeader &h = retrans.header();
         _segments_out.push(retrans);
         _consecutive_retrans_num += 1;
-        //if win size is non zero,then double value of rto
+        // if win size is non zero,then double value of rto
         if (retrans.header().win != 0) {
             _rto *= 2;
         }
